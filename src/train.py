@@ -1,95 +1,223 @@
-import pandas as pd
-import numpy as np
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.model_selection import train_test_split
-import joblib
 import os
+from pathlib import Path
+
+import joblib
 import mlflow
-from sklearn.metrics import accuracy_score, precision_score, recall_score
+import mlflow.sklearn
+import pandas as pd
+from mlflow.tracking import MlflowClient
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    precision_score,
+    recall_score,
+)
+from sklearn.model_selection import train_test_split
 
-mlflow_uri = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
-mlflow.set_tracking_uri(mlflow_uri)
-mlflow.set_experiment("FraudDetection")
 
-print(mlflow.get_tracking_uri())
+# --------------------------------------------------
+# Configuration
+# --------------------------------------------------
 
-# This gets the directory where train.py is located (the 'src' folder)
-CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
-# This builds the path: src/feature_repo/data/transactions.csv
-parquet_path = os.path.join(CURRENT_DIR, "feature_repo", "data", "transactions.csv")
+DATA_PATH = (
+    PROJECT_ROOT
+    / "src"
+    / "feature_repo"
+    / "data"
+    / "transactions.parquet"
+)
 
-def load_data_from_parquet():
-    """ Loads transaction data from the Feast offline store (parquet)
-    """
-    if not os.path.exists(parquet_path):
-        # Fallback to creating dummy data if parquet doesn't exist (though it should)
-        print(f"Warning: {parquet_path} not found. Running generate_data.py first might be needed.")
-        return pd.DataFrame()
-    
-    df = pd.read_parquet(parquet_path)
-    
-    # Create synthetic target 'fraud' for demonstration
-    # Logic: high amount + international OR abnormally high amount compared to 30d average
+MODEL_PATH = PROJECT_ROOT / "model" / "fraud_model.pkl"
+
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "http://localhost:5000",
+)
+
+EXPERIMENT_NAME = "FraudDetection"
+REGISTERED_MODEL_NAME = "fraud_model"
+
+FEATURES = [
+    "amount",
+    "transaction_time",
+    "user_age",
+    "is_international",
+    "avg_30d_spending",
+]
+
+
+# --------------------------------------------------
+# Load and validate data
+# --------------------------------------------------
+
+def load_data() -> pd.DataFrame:
+    """Load transaction data and create a synthetic fraud target."""
+
+    if not DATA_PATH.exists():
+        raise FileNotFoundError(
+            f"Training data not found: {DATA_PATH}\n"
+            "Generate the transaction data before training."
+        )
+
+    df = pd.read_parquet(DATA_PATH)
+
+    missing_columns = [
+        column
+        for column in FEATURES
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Missing required feature columns: {missing_columns}"
+        )
+
+    if df[FEATURES].isnull().any().any():
+        raise ValueError(
+            "Training data contains missing feature values."
+        )
+
+    # Synthetic labels for demonstration purposes only.
     df["fraud"] = (
-        ((df["amount"] > 4000) & (df["is_international"] == 1)) |
-        (df["amount"] > (df["avg_30d_spending"] * 2.0))
+        (
+            (df["amount"] > 4000)
+            & (df["is_international"] == 1)
+        )
+        | (
+            df["amount"] > df["avg_30d_spending"] * 2.0
+        )
     ).astype(int)
-    
-    print(f"Loaded {len(df)} records from {parquet_path}")
-    print(f"Fraud distribution: {df['fraud'].value_counts().to_dict()}")
-    
+
+    class_counts = df["fraud"].value_counts().to_dict()
+
+    print(f"Loaded {len(df)} records from {DATA_PATH}")
+    print(f"Class distribution: {class_counts}")
+
+    if df.empty or df["fraud"].nunique() != 2:
+        raise ValueError(
+            "Training requires non-empty data containing both "
+            "fraud and non-fraud examples."
+        )
+
+    if df["fraud"].value_counts().min() < 2:
+        raise ValueError(
+            "Each target class needs at least two records "
+            "for a stratified train/test split."
+        )
+
     return df
 
-def train():
-    df = load_data_from_parquet()
-    if df.empty:
-        return
 
-    # Features used for training
-    features = ["amount", "transaction_time", "user_age", "is_international", "avg_30d_spending"]
-    X = df[features]
+# --------------------------------------------------
+# Train, evaluate, and register model
+# --------------------------------------------------
+
+def train_model() -> None:
+    """Train the model, log metrics, and register it in MLflow."""
+
+    df = load_data()
+
+    X = df[FEATURES]
     y = df["fraud"]
 
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
+        X,
+        y,
+        test_size=0.2,
+        random_state=42,
+        stratify=y,
     )
 
-    model = RandomForestClassifier(n_estimators=100, random_state=42)
+    model = RandomForestClassifier(
+        n_estimators=100,
+        random_state=42,
+        n_jobs=-1,
+    )
+
     model.fit(X_train, y_train)
 
-    y_pred = model.predict(X_test)
-    
-    # Calculate metrics with zero_division parameter safety
-    accuracy = accuracy_score(y_test, y_pred)
-    precision = precision_score(y_test, y_pred, zero_division=0)
-    recall = recall_score(y_test, y_pred, zero_division=0)
+    predictions = model.predict(X_test)
 
-    print(f"Metrics - Accuracy: {accuracy:.4f}, Precision: {precision:.4f}, Recall: {recall:.4f}")
+    metrics = {
+        "accuracy": accuracy_score(y_test, predictions),
+        "precision": precision_score(
+            y_test,
+            predictions,
+            zero_division=0,
+        ),
+        "recall": recall_score(
+            y_test,
+            predictions,
+            zero_division=0,
+        ),
+    }
 
-    # MLflow logging
-    try:
-        with mlflow.start_run():
-            mlflow.log_param("n_estimators", 100)
-            mlflow.log_param("random_state", 42)
-            mlflow.log_param("features", features)
-            mlflow.log_metric("accuracy", accuracy)
-            mlflow.log_metric("precision", precision)
-            mlflow.log_metric("recall", recall)
-            
-            # Log the model and register it
-            mlflow.sklearn.log_model(
-                sk_model=model,
-                artifact_path="fraud_model",
-                registered_model_name="fraud_model"
-            )
-            print("Model logged and registered in MLflow.")
-    except Exception as e:
-        print(f"MLflow logging failed: {e}. Check if MLflow server is reachable at {mlflow_uri}")
+    print("\nEvaluation metrics:")
+    for metric_name, metric_value in metrics.items():
+        print(f"{metric_name}: {metric_value:.4f}")
 
-    os.makedirs("model", exist_ok=True)
-    joblib.dump(model, "model/fraud_model.pkl")
-    print("Model trained and saved locally as well.")
+    # Save a local backup independently of MLflow.
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, MODEL_PATH)
+
+    print(f"\nLocal model saved: {MODEL_PATH}")
+
+    # Configure MLflow tracking.
+    mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+    mlflow.set_experiment(EXPERIMENT_NAME)
+
+    print(f"MLflow tracking URI: {mlflow.get_tracking_uri()}")
+
+    # Log training details and register the model.
+    with mlflow.start_run() as run:
+        mlflow.log_params(
+            {
+                "n_estimators": 100,
+                "random_state": 42,
+                "test_size": 0.2,
+                "features": ",".join(FEATURES),
+            }
+        )
+
+        mlflow.log_metrics(metrics)
+
+        model_info = mlflow.sklearn.log_model(
+            sk_model=model,
+            artifact_path="fraud_model",
+            registered_model_name=REGISTERED_MODEL_NAME,
+            input_example=X_train.head(5),
+        )
+
+        print(f"\nMLflow run ID: {run.info.run_id}")
+        print(f"Model artifact URI: {model_info.model_uri}")
+
+    # Verify that registration and version creation succeeded.
+    client = MlflowClient(
+        tracking_uri=MLFLOW_TRACKING_URI
+    )
+
+    registered_model = client.get_registered_model(
+        REGISTERED_MODEL_NAME
+    )
+
+    if not registered_model.latest_versions:
+        raise RuntimeError(
+            f"Model '{REGISTERED_MODEL_NAME}' exists, "
+            "but no registered versions were found."
+        )
+
+    latest_version = max(
+        registered_model.latest_versions,
+        key=lambda version: int(version.version),
+    )
+
+    print("\nSUCCESS: Model registered in MLflow.")
+    print(f"Registered name: {registered_model.name}")
+    print(f"Latest version: {latest_version.version}")
+    print(f"Version status: {latest_version.status}")
+
 
 if __name__ == "__main__":
-    train()
+    train_model()

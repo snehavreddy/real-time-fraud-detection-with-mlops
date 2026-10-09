@@ -37,9 +37,10 @@ def generate_dummy_data(output_path):
     print(df.head())
 
 if __name__ == "__main__":
-    
-    CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
-    
-    path = os.path.join(CURRENT_DIR, "feature_repo", "data", "transactions.parquet")
+    output_path = (
+        r"C:\Users\sneha\OneDrive\Desktop"
+        r"\real-time-fraud-detection-with-mlops"
+        r"\src\feature_repo\data\transactions.parquet"
+    )
 
-    generate_dummy_data(path)
+    generate_dummy_data(output_path)

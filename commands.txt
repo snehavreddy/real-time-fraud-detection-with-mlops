@@ -1,0 +1,50 @@
+PART-1:
+------------------------------------------------------------
+uv init
+uv venv
+.venv\Scripts\activate
+uv add fastapi uvicorn kafka-python scikit-learn pandas numpy joblib mlflow psutil "feast==0.49.0" redis httpx requests prometheus-fastapi-instrumentator "evidently==0.6.7"
+
+python src/train.py
+uv run uvicorn api:app --reload
+
+docker compose up --build
+
+PART-2:
+------------------------------------------------------------
+PART-3:
+------------------------------------------------------------
+PART-4:
+------------------------------------------------------------
+PART-5:
+Project PowerShell
+cd "C:\Users\sneha\OneDrive\Desktop\real-time-fraud-detection-with-mlops"
+
+docker build -f Dockerfile.api -t real-time-fraud-detection-api:latest .
+docker build -f Dockerfile.producer -t real-time-fraud-detection-producer:latest .
+docker build -f Dockerfile.consumer -t real-time-fraud-detection-kafka-consumer:latest .
+
+minikube image load real-time-fraud-detection-api:latest
+minikube image load real-time-fraud-detection-producer:latest
+minikube image load real-time-fraud-detection-kafka-consumer:latest
+
+Global PowerShell
+minikube start --driver=docker
+
+kubectl apply -f "C:\Users\sneha\OneDrive\Desktop\real-time-fraud-detection-with-mlops\k8s-deployment.yaml"
+
+kubectl apply -f "C:\Users\sneha\OneDrive\Desktop\real-time-fraud-detection-with-mlops\monitoring-stack.yaml"
+
+kubectl rollout restart deployment/api
+kubectl rollout restart deployment/producer
+kubectl rollout restart deployment/consumer
+
+kubectl rollout status deployment/api
+kubectl rollout status deployment/producer
+kubectl rollout status deployment/consumer
+
+kubectl get pods
+
+------------------------------------------------------------
+PART-6:
+------------------------------------------------------------

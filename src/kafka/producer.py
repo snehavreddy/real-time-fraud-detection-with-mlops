@@ -2,7 +2,7 @@ import json
 import time
 import requests
 from kafka import KafkaProducer
-from kafka.errors import NoBrokersAvailable
+from kafka.errors import KafkaTimeoutError
 import os
 
 kafka_broker = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:9092")
@@ -19,7 +19,7 @@ def create_producer():
             )
             print(f"Connected to Kafka at {kafka_broker}.")
             return producer
-        except NoBrokersAvailable:
+        except KafkaTimeoutError:
             print(f"Waiting for Kafka at {kafka_broker}...")
             time.sleep(5)
 

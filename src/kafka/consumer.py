@@ -1,9 +1,10 @@
 import json
 import numpy as np
 import time
+import mlflow
 import mlflow.sklearn
 from kafka import KafkaConsumer
-from kafka.errors import NoBrokersAvailable
+from kafka.errors import KafkaTimeoutError
 from feast import FeatureStore
 import os
 import pandas as pd
@@ -77,7 +78,7 @@ def create_consumer():
             )
             print("Consumer connected.")
             return consumer
-        except NoBrokersAvailable:
+        except KafkaTimeoutError:
             print("Waiting for Kafka...")
             time.sleep(1)
 

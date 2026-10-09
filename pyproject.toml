@@ -1,0 +1,33 @@
+[project]
+name = "real-time-fraud-detection-with-mlops"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "snehav", email = "snehavreddy12@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "evidently==0.6.7",
+    "fastapi>=0.143.0",
+    "feast==0.49.0",
+    "httpx>=0.28.1",
+    "joblib>=1.6.0",
+    "kafka-python>=3.0.11",
+    "mlflow>=3.17.0",
+    "numpy>=1.26.4",
+    "pandas>=2.3.3",
+    "prometheus-fastapi-instrumentator>=8.1.0",
+    "psutil>=7.2.2",
+    "redis>=8.1.0",
+    "requests>=2.34.2",
+    "scikit-learn>=1.9.1",
+    "uvicorn>=0.34.0",
+]
+
+[project.scripts]
+real-time-fraud-detection-with-mlops = "real_time_fraud_detection_with_mlops:main"
+
+[build-system]
+requires = ["uv_build>=0.12.11,<0.13.0"]
+build-backend = "uv_build"
